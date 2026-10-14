@@ -491,7 +491,16 @@ class RagManagerTest {
         watchSaves()
         val manager = newManager { _, dest, _, _ -> dest.writeText("gguf bytes") }
         manager.downloadDefaultEmbeddingModel()
-        withTimeout(5_000) { manager.isDownloadingDefaultModel.first { !it } }
+        // Wait on the observable end state, not the transient flag: isDownloading starts false, so
+        // first { !it } can win before the IO coroutine ever begins under CI's max-workers=1.
+        withTimeout(5_000) {
+            models.first { configs ->
+                configs.any {
+                    it.id == EmbeddingGemmaDefaults.MODEL_ID &&
+                        it.name == EmbeddingGemmaDefaults.DISPLAY_NAME
+                }
+            }
+        }
         withTimeout(5_000) { EmbeddingCacheLocks.forModel(EmbeddingGemmaDefaults.MODEL_ID).withLock {} }
         val configs = models.value
         assertEquals(2, configs.size)
@@ -536,19 +545,19 @@ class RagManagerTest {
         models.value = emptyList()
         every { settings.activeEmbeddingModelId } returns MutableStateFlow("")
         val saved = watchSaves()
-        var invocations = 0
+        val invocations = AtomicInteger()
         val blocked = CompletableDeferred<Unit>()
         val activated = CompletableDeferred<Unit>()
         coEvery { settings.setActiveEmbeddingModelId(any()) } coAnswers { activated.complete(Unit) }
         val manager = newManager { _, dest, _, _ ->
-            invocations += 1
+            invocations.incrementAndGet()
             dest.writeText("gguf bytes")
             blocked.await()
         }
         manager.downloadDefaultEmbeddingModel()
         withTimeout(5_000) { manager.isDownloadingDefaultModel.first { it } }
         manager.downloadDefaultEmbeddingModel()
-        assertEquals(1, invocations)
+        assertEquals(1, invocations.get())
         blocked.complete(Unit)
         withTimeout(5_000) { activated.await() }
         assertEquals(1, saved.size)
