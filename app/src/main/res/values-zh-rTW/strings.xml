@@ -121,7 +121,11 @@
     <string name="local_model_ready">模型已匯入。</string>
     <string name="import_model">匯入模型 (.gguf)</string>
     <string name="importing_model">匯入中…</string>
-    <string name="no_embedding_models">未設定嵌入模型</string>
+
+    <string name="embedding_gemma_name">EmbeddingGemma 2</string>
+    <string name="embedding_gemma_desc">預設 RAG 嵌入模型 · 裝置端 · 310 MB</string>
+    <string name="embedding_gemma_download">下載</string>
+    <string name="embedding_gemma_downloading">下載中</string>
     <string name="embedding_type_remote">遠端</string>
     <string name="embedding_type_local">本機</string>
     <string name="cached">已快取</string>

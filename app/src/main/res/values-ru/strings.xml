@@ -204,7 +204,11 @@
     <string name="local_model_ready">Модель импортирована.</string>
     <string name="import_model">Импортировать модель (.gguf)</string>
     <string name="importing_model">Импорт...</string>
-    <string name="no_embedding_models">Нет настроенных моделей эмбеддинга</string>
+
+    <string name="embedding_gemma_name">EmbeddingGemma 2</string>
+    <string name="embedding_gemma_desc">Модель эмбеддинга RAG по умолчанию · На устройстве · 310 МБ</string>
+    <string name="embedding_gemma_download">Скачать</string>
+    <string name="embedding_gemma_downloading">Загрузка</string>
     <string name="embedding_type_remote">Удалённая</string>
     <string name="embedding_type_local">Локальная</string>
     <string name="cached">В кэше</string>

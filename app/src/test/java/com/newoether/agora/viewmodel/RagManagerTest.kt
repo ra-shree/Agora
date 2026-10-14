@@ -11,7 +11,9 @@ import androidx.work.workDataOf
 import com.newoether.agora.data.EmbeddingModelConfig
 import com.newoether.agora.data.EmbeddingModelType
 import com.newoether.agora.data.EmbeddingCacheLocks
+import com.newoether.agora.data.EmbeddingGemmaDefaults
 import com.google.common.util.concurrent.SettableFuture
+import java.io.File
 import com.newoether.agora.data.local.EmbeddingModelCount
 import com.newoether.agora.data.local.SemanticIndexLedgerEntity
 import com.newoether.agora.data.repository.ConversationRepository
@@ -76,7 +78,13 @@ class RagManagerTest {
         coEvery { repository.getSemanticLedgers(any()) } returns listOf(
             SemanticIndexLedgerEntity(model.id, state = SemanticIndexLedgerEntity.STATE_CURRENT, updatedAt = 0),
         )
-        manager = RagManager(repository, settings, ApplicationProvider.getApplicationContext(), scope) {}
+        manager = RagManager(
+            repository,
+            settings,
+            ApplicationProvider.getApplicationContext(),
+            scope,
+            emitSnackbar = {},
+        )
     }
 
     @After
@@ -409,6 +417,165 @@ class RagManagerTest {
     private fun field(name: String): Any? = manager.javaClass.getDeclaredField(name).apply {
         isAccessible = true
     }.get(manager)
+
+    // -- EmbeddingGemma 2 default-model download --------------------------------------------
+
+    private fun newManager(downloader: DefaultModelDownloader): RagManager = RagManager(
+        conversations = repository,
+        settings = settings,
+        appContext = ApplicationProvider.getApplicationContext(),
+        scope = scope,
+        emitSnackbar = {},
+        defaultModelDownloader = downloader,
+    )
+
+    private fun watchSaves(): MutableList<List<EmbeddingModelConfig>> {
+        coEvery { repository.getOrAdmitSemanticLedgerState(any()) } returns
+            SemanticIndexLedgerEntity.STATE_PENDING
+        val saved = mutableListOf<List<EmbeddingModelConfig>>()
+        coEvery { settings.saveEmbeddingModels(any()) } coAnswers {
+            saved += firstArg<List<EmbeddingModelConfig>>()
+            models.value = firstArg()
+        }
+        return saved
+    }
+
+    @Test
+    fun defaultModelDownloadRegistersThePinnedConfigAndActivatesIt() = runBlocking {
+        models.value = emptyList()
+        every { settings.activeEmbeddingModelId } returns MutableStateFlow("")
+        val activated = CompletableDeferred<Unit>()
+        coEvery { settings.setActiveEmbeddingModelId(any()) } coAnswers { activated.complete(Unit) }
+        val saved = watchSaves()
+        val manager = newManager { _, dest, _, onProgress ->
+            dest.writeText("gguf bytes")
+            onProgress(0.25f)
+            onProgress(1.0f)
+        }
+        manager.downloadDefaultEmbeddingModel()
+        withTimeout(5_000) { activated.await() }
+        val target = File(
+            ApplicationProvider.getApplicationContext<android.content.Context>().filesDir,
+            EmbeddingGemmaDefaults.GGUF_FILE_NAME,
+        )
+        val configs = models.value
+        assertEquals(1, configs.size)
+        val registered = configs.single()
+        assertEquals(EmbeddingGemmaDefaults.MODEL_ID, registered.id)
+        assertEquals(EmbeddingGemmaDefaults.DISPLAY_NAME, registered.name)
+        assertEquals(EmbeddingModelType.LOCAL, registered.type)
+        assertEquals(target.absolutePath, registered.localFilePath)
+        assertEquals(EmbeddingGemmaDefaults.BATCH_SIZE, registered.batchSize)
+        assertEquals(EmbeddingGemmaDefaults.PROMPT_FORMAT, registered.promptFormat)
+        assertTrue(target.isFile)
+        assertTrue(manager.defaultModelError.value == null)
+        coVerify(exactly = 0) { repository.invalidateSemanticModel(any(), any()) }
+        assertNull(File(target.parentFile, EmbeddingGemmaDefaults.GGUF_FILE_NAME + ".tmp").takeIf { it.exists() })
+    }
+
+    @Test
+    fun defaultModelReDownloadReplacesTheEntryWithoutDuplicatingIds() = runBlocking {
+        val existing = EmbeddingModelConfig(
+            id = EmbeddingGemmaDefaults.MODEL_ID,
+            name = "Old name",
+            type = EmbeddingModelType.LOCAL,
+            localFilePath = "/previous/path.gguf",
+            batchSize = 4,
+            promptFormat = "legacy",
+        )
+        models.value = listOf(
+            existing,
+            EmbeddingModelConfig(id = "other", name = "Other", type = EmbeddingModelType.REMOTE),
+        )
+        coEvery { settings.setActiveEmbeddingModelId(any()) } returns Unit
+        watchSaves()
+        val manager = newManager { _, dest, _, _ -> dest.writeText("gguf bytes") }
+        manager.downloadDefaultEmbeddingModel()
+        withTimeout(5_000) { manager.isDownloadingDefaultModel.first { !it } }
+        withTimeout(5_000) { EmbeddingCacheLocks.forModel(EmbeddingGemmaDefaults.MODEL_ID).withLock {} }
+        val configs = models.value
+        assertEquals(2, configs.size)
+        assertEquals(configs.map { it.id }, configs.map { it.id }.distinct())
+        val replaced = configs.first { it.id == EmbeddingGemmaDefaults.MODEL_ID }
+        assertEquals(EmbeddingGemmaDefaults.DISPLAY_NAME, replaced.name)
+        assertEquals(
+            File(
+                ApplicationProvider.getApplicationContext<android.content.Context>().filesDir,
+                EmbeddingGemmaDefaults.GGUF_FILE_NAME,
+            ).absolutePath,
+            replaced.localFilePath,
+        )
+        assertEquals(4, replaced.batchSize)
+        assertEquals(EmbeddingGemmaDefaults.PROMPT_FORMAT, replaced.promptFormat)
+        // Pinned weights: replacing the file never invalidates stored embeddings.
+        coVerify(exactly = 0) { repository.invalidateSemanticModel(any(), any()) }
+    }
+
+    @Test
+    fun defaultModelChecksumFailureDeletesTheFileAndRegistersNothing() = runBlocking {
+        models.value = emptyList()
+        every { settings.activeEmbeddingModelId } returns MutableStateFlow("")
+        val saved = watchSaves()
+        val manager = newManager { _, dest, _, _ ->
+            dest.writeText("corrupt bytes")
+            throw IllegalStateException("EmbeddingGemma 2 checksum mismatch")
+        }
+        manager.downloadDefaultEmbeddingModel()
+        withTimeout(5_000) { manager.defaultModelError.first { it != null } }
+        withTimeout(5_000) { manager.isDownloadingDefaultModel.first { !it } }
+        val filesDir = ApplicationProvider.getApplicationContext<android.content.Context>().filesDir
+        assertFalse(File(filesDir, EmbeddingGemmaDefaults.GGUF_FILE_NAME).exists())
+        assertFalse(File(filesDir, EmbeddingGemmaDefaults.GGUF_FILE_NAME + ".tmp").exists())
+        assertTrue(saved.isEmpty())
+        assertTrue(models.value.isEmpty())
+        assertTrue(manager.defaultModelError.value!!.contains("checksum mismatch"))
+    }
+
+    @Test
+    fun secondDownloadWhileRunningIsRejected() = runBlocking {
+        models.value = emptyList()
+        every { settings.activeEmbeddingModelId } returns MutableStateFlow("")
+        val saved = watchSaves()
+        var invocations = 0
+        val blocked = CompletableDeferred<Unit>()
+        val activated = CompletableDeferred<Unit>()
+        coEvery { settings.setActiveEmbeddingModelId(any()) } coAnswers { activated.complete(Unit) }
+        val manager = newManager { _, dest, _, _ ->
+            invocations += 1
+            dest.writeText("gguf bytes")
+            blocked.await()
+        }
+        manager.downloadDefaultEmbeddingModel()
+        withTimeout(5_000) { manager.isDownloadingDefaultModel.first { it } }
+        manager.downloadDefaultEmbeddingModel()
+        assertEquals(1, invocations)
+        blocked.complete(Unit)
+        withTimeout(5_000) { activated.await() }
+        assertEquals(1, saved.size)
+    }
+
+    @Test
+    fun cancellingTheDownloadDiscardsThePartialFile() = runBlocking {
+        models.value = emptyList()
+        every { settings.activeEmbeddingModelId } returns MutableStateFlow("")
+        watchSaves()
+        val manager = newManager { _, dest, _, onProgress ->
+            dest.writeText("partial gguf")
+            onProgress(0.4f)
+            awaitCancellation()
+        }
+        manager.downloadDefaultEmbeddingModel()
+        val filesDir = ApplicationProvider.getApplicationContext<android.content.Context>().filesDir
+        withTimeout(5_000) {
+            manager.defaultModelDownloadProgress.first { it != null }
+        }
+        assertTrue(File(filesDir, EmbeddingGemmaDefaults.GGUF_FILE_NAME + ".tmp").exists())
+        manager.cancelDefaultModelDownload()
+        withTimeout(5_000) { manager.isDownloadingDefaultModel.first { !it } }
+        assertFalse(File(filesDir, EmbeddingGemmaDefaults.GGUF_FILE_NAME + ".tmp").exists())
+        assertFalse(File(filesDir, EmbeddingGemmaDefaults.GGUF_FILE_NAME).exists())
+        assertTrue(models.value.isEmpty())
+    }
 
     private suspend fun awaitRow(predicate: (EmbeddingCacheRowSnapshot) -> Boolean) =
         withTimeout(5_000) {

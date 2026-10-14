@@ -29,6 +29,16 @@ seven upstream Android ARM variants from `android_armv8.0_1` through `android_ar
 `android_armv8.0_1` module is the compatible arm64 baseline when no higher-scoring feature set is
 available. KleidiAI, Vulkan, and OpenMP remain disabled.
 
+The vendored `thirdparty/llama.cpp` submodule is pinned to the upstream ggml-org/llama.cpp merge
+commit `4fbc76d` (PR #30054), the release that added the `gemma-embedding2` architecture
+(`src/models/gemma-embedding2.cpp`, required to load the ggml-org `embeddinggemma-*GGUF` files used
+by the pinned default RAG embedding model). The Android CPU backend packaging above is unchanged by
+that pin. The pin also ships upstream's newer `mtmd` bitmap helper API (`mtmd_helper_bitmap_init_from_file`
+returns a `mtmd_helper_bitmap_wrapper` rather than a bare `mtmd_bitmap *`); only that one call site
+inside `app/src/main/cpp/llama_chat_jni.cpp` was adapted, with no behavior change. Upstream master
+beyond `4fbc76d` further breaks the JNI chat surface (`common_chat_parser_params`,
+`common_peg_arena`, `common_chat_parse`), which is why the pin is fixed and not floating.
+
 `AppContainer` passes `applicationInfo.nativeLibraryDir` once to `LocalModelRuntime`. The runtime
 canonicalizes that directory and calls the existing `LlamaEngine` JNI owner, which loads the best
 compatible CPU module with `ggml_backend_load_all_from_path` before initializing llama.cpp. Chat and

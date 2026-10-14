@@ -204,7 +204,11 @@
     <string name="local_model_ready">Modell importiert.</string>
     <string name="import_model">Modell importieren (.gguf)</string>
     <string name="importing_model">Importieren...</string>
-    <string name="no_embedding_models">Keine Embedding-Modelle konfiguriert</string>
+
+    <string name="embedding_gemma_name">EmbeddingGemma 2</string>
+    <string name="embedding_gemma_desc">Standard-RAG-Embeddingmodell · Auf dem Gerät · 310 MB</string>
+    <string name="embedding_gemma_download">Herunterladen</string>
+    <string name="embedding_gemma_downloading">Wird heruntergeladen</string>
     <string name="embedding_type_remote">Entfernt</string>
     <string name="embedding_type_local">Lokal</string>
     <string name="cached">Zwischengespeichert</string>

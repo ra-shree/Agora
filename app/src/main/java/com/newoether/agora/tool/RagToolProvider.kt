@@ -420,7 +420,7 @@ class RagToolProvider(
                 DebugLog.w("AgoraVM", "GM RAG: local model not ready")
                 return@withContext emptyList()
             }
-            LlamaEngine.computeEmbedding(query, config.localFilePath)
+            LlamaEngine.computeEmbedding(config.queryEmbeddingInput(query), config.localFilePath)
         } else {
             val apiKey = resolveEmbeddingApiKey(ctx)
             if (apiKey == null) {
@@ -428,7 +428,7 @@ class RagToolProvider(
                 return@withContext emptyList()
             }
             EmbeddingClient.computeEmbedding(
-                text = query,
+                text = config.queryEmbeddingInput(query),
                 apiKey = apiKey,
                 model = config.remoteModelName,
                 baseUrl = config.remoteBaseUrl.ifBlank { ProviderDefaults.OPENAI_BASE_URL }

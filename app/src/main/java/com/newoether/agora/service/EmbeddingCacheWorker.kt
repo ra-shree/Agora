@@ -310,7 +310,7 @@ class EmbeddingCacheWorker(
     ): Boolean {
         if (candidates.isEmpty()) return true
         val texts = candidates.map { candidate ->
-            candidate.message.text.take(Constants.MAX_EMBEDDING_TEXT_LENGTH)
+            model.documentEmbeddingInput(candidate.message.text.take(Constants.MAX_EMBEDDING_TEXT_LENGTH))
         }
         val embeddings = if (model.type == EmbeddingModelType.LOCAL) {
             LlamaEngine.computeEmbeddings(texts, model.localFilePath)

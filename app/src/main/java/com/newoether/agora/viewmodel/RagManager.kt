@@ -5,6 +5,7 @@ import androidx.work.WorkManager
 import com.newoether.agora.R
 import com.newoether.agora.api.ProviderDefaults
 import com.newoether.agora.data.EmbeddingCacheLocks
+import com.newoether.agora.data.EmbeddingGemmaDefaults
 import com.newoether.agora.data.EmbeddingModelConfig
 import com.newoether.agora.data.EmbeddingModelType
 import com.newoether.agora.data.local.SemanticIndexLedgerEntity
@@ -23,6 +24,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +38,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
+import java.net.URL
 
 internal fun isEmbeddingMessageIdEligible(messageId: String): Boolean =
     !messageId.startsWith(Constants.COMPACT_MSG_PREFIX) &&
@@ -52,6 +57,7 @@ class RagManager(
     private val appContext: Context,
     private val scope: CoroutineScope,
     private val emitSnackbar: suspend (SnackbarEvent) -> Unit,
+    private val defaultModelDownloader: DefaultModelDownloader = ::downloadEmbeddingGguf,
 ) {
     val activeEmbeddingModel: StateFlow<EmbeddingModelConfig?> =
         combine(settings.embeddingModels, settings.activeEmbeddingModelId) { models, id ->
@@ -65,6 +71,15 @@ class RagManager(
         _cacheRows.asStateFlow()
     private val scheduledCacheWorkIds =
         java.util.concurrent.ConcurrentHashMap<String, java.util.UUID>()
+
+    // -- Default RAG embedding model (EmbeddingGemma 2) --------------------------------------
+    private val _defaultModelDownloadProgress = MutableStateFlow<Float?>(null)
+    val defaultModelDownloadProgress: StateFlow<Float?> = _defaultModelDownloadProgress.asStateFlow()
+    private val _isDownloadingDefaultModel = MutableStateFlow(false)
+    val isDownloadingDefaultModel: StateFlow<Boolean> = _isDownloadingDefaultModel.asStateFlow()
+    private val _defaultModelError = MutableStateFlow<String?>(null)
+    val defaultModelError: StateFlow<String?> = _defaultModelError.asStateFlow()
+    @Volatile private var defaultModelDownloadJob: Job? = null
 
     @Volatile private var cacheCountRefreshJob: Job? = null
     @Volatile private var pendingRefreshModels: List<EmbeddingModelConfig>? = null
@@ -378,11 +393,20 @@ class RagManager(
                 }
             }
             if (!added) return@launch
-            if (wasEmpty) admitActiveModel(config.id)
-            val currentModels = settings.embeddingModels.value
-            observeCacheWork(currentModels.mapTo(linkedSetOf(), EmbeddingModelConfig::id))
-            requestCacheCountRefresh(models = currentModels)
+            finishRegisteringEmbeddingModel(config.id, wasEmpty)
         }
+    }
+
+    /**
+     * Shared registration tail: auto-activation for the first configured model, cache-work
+     * observation, and a cache-count refresh. Used by [addEmbeddingModel] and the default
+     * EmbeddingGemma 2 download.
+     */
+    private suspend fun finishRegisteringEmbeddingModel(configId: String, wasEmpty: Boolean) {
+        if (wasEmpty) admitActiveModel(configId)
+        val currentModels = settings.embeddingModels.value
+        observeCacheWork(currentModels.mapTo(linkedSetOf(), EmbeddingModelConfig::id))
+        requestCacheCountRefresh(models = currentModels)
     }
 
     fun deleteEmbeddingModel(id: String) {
@@ -446,6 +470,95 @@ class RagManager(
                 admitActiveModel(activeId, autoCacheOverride = true)
             }
         }
+    }
+
+    // -- EmbeddingGemma 2 default-model download ----------------------------------------------
+
+    /**
+     * Downloads the pinned EmbeddingGemma 2 GGUF, registers it as a local embedding model,
+     * and activates it ("download, install and use"). Failure (network, HTTP error, or a checksum
+     * mismatch against the pinned SHA-256) leaves no registered model.
+     */
+    fun downloadDefaultEmbeddingModel() {
+        if (_isDownloadingDefaultModel.value || defaultModelDownloadJob?.isActive == true) return
+        _defaultModelDownloadProgress.value = null
+        _defaultModelError.value = null
+        defaultModelDownloadJob = scope.launch(Dispatchers.IO) {
+            _isDownloadingDefaultModel.value = true
+            _defaultModelDownloadProgress.value = null
+            _defaultModelError.value = null
+            val dest = File(appContext.filesDir, EmbeddingGemmaDefaults.GGUF_FILE_NAME)
+            val tmp = File(dest.parentFile, "${dest.name}.tmp")
+            try {
+                tmp.delete()
+                defaultModelDownloader(
+                    URL(EmbeddingGemmaDefaults.URL),
+                    tmp,
+                    EmbeddingGemmaDefaults.SHA256,
+                ) { progress -> _defaultModelDownloadProgress.value = progress }
+                if (!tmp.renameTo(dest)) {
+                    dest.delete()
+                    if (!tmp.renameTo(dest)) error("Failed to finalize the EmbeddingGemma 2 download")
+                }
+                registerDownloadedDefaultEmbeddingModel(dest)
+                setActiveEmbeddingModel(EmbeddingGemmaDefaults.MODEL_ID)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                DebugLog.e("RagManager", "EmbeddingGemma 2 download failed", error)
+                _defaultModelError.value = error.message ?: error.toString()
+            } finally {
+                withContext(NonCancellable) { tmp.delete() }
+                _defaultModelDownloadProgress.value = null
+                _isDownloadingDefaultModel.value = false
+            }
+        }
+    }
+
+    /** Cancels the running default-model download and discards the partial file. */
+    fun cancelDefaultModelDownload() {
+        val job = defaultModelDownloadJob?.takeIf { it.isActive } ?: return
+        scope.launch(Dispatchers.IO) {
+            job.cancel()
+            withContext(NonCancellable) {
+                File(appContext.filesDir, EmbeddingGemmaDefaults.GGUF_FILE_NAME + ".tmp").delete()
+            }
+        }
+    }
+
+    /**
+     * Registers a downloaded GGUF as the local EmbeddingGemma 2 embedding model. Re-downloads
+     * map-replace the existing entry (same pinned weights) so stored embeddings stay valid; a
+     * fresh id is appended and auto-activates through the shared registration tail.
+     */
+    private suspend fun registerDownloadedDefaultEmbeddingModel(dest: File) {
+        settings.awaitInitialLoad()
+        val wasEmpty = settings.embeddingModels.value.isEmpty()
+        val existing = settings.embeddingModels.value.firstOrNull {
+            it.id == EmbeddingGemmaDefaults.MODEL_ID
+        }
+        val config = existing?.copy(
+            name = EmbeddingGemmaDefaults.DISPLAY_NAME,
+            localFilePath = dest.absolutePath,
+            promptFormat = EmbeddingGemmaDefaults.PROMPT_FORMAT,
+            batchSize = existing.batchSize.takeIf { it > 0 } ?: EmbeddingGemmaDefaults.BATCH_SIZE,
+        ) ?: EmbeddingModelConfig(
+            id = EmbeddingGemmaDefaults.MODEL_ID,
+            name = EmbeddingGemmaDefaults.DISPLAY_NAME,
+            type = EmbeddingModelType.LOCAL,
+            localFilePath = dest.absolutePath,
+            batchSize = EmbeddingGemmaDefaults.BATCH_SIZE,
+            promptFormat = EmbeddingGemmaDefaults.PROMPT_FORMAT,
+        )
+        val models = if (existing != null) {
+            settings.embeddingModels.value.map { if (it.id == config.id) config else it }
+        } else {
+            settings.embeddingModels.value + config
+        }
+        EmbeddingCacheLocks.forModel(config.id).withLock {
+            settings.saveEmbeddingModels(models)
+        }
+        finishRegisteringEmbeddingModel(config.id, wasEmpty)
     }
 
     // -- Semantic ledger and durable cache work --------------------------------------------

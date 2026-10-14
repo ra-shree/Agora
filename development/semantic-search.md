@@ -23,6 +23,36 @@ page plus the requested top candidates; corpus growth must not translate into An
 - Invalid dimensions, malformed byte lengths, and non-finite scores are skipped without aborting
   the remaining corpus and without logging message content.
 
+## 1a. Pinned default RAG embedding model (EmbeddingGemma 2)
+
+Google's EmbeddingGemma 2 is the default one-tap embedding model. `EmbeddingGemmaDefaults` owns the
+pinned identity between releases: a stable model id (`local-embeddinggemma-2`, so re-downloading
+replaces the entry instead of duplicating it), the display name, the `ggml-org/embeddinggemma-2-GGUF`
+`embeddinggemma-2-Q8_0.gguf` URL, the pinned SHA-256, and the file size.
+
+- Nothing is pre-registered before the download completes. `RagManager.downloadDefaultEmbeddingModel()`
+  streams the GGUF into a `.tmp` file under `filesDir`, streams SHA-256, verifies the pinned digest,
+  renames it into place under `EmbeddingCacheLocks.forModel(id)`, registers the LOCAL
+  `EmbeddingModelConfig` (gemma prompt format, default batch size), and activates it
+  ("download, install and use"). A network, HTTP, or checksum failure deletes the partial file,
+  surfaces the error on the Settings card, and registers nothing (fail-closed). The pinned URL and
+  digest are intentionally static: a later HF re-upload with different bytes must fail visibly and
+  be fixed by a deliberate constant update, never by silently accepting the new file.
+- The download is cancelable and re-entry-safe; progress/error state lives in
+  `RagManager` StateFlows (`defaultModelDownloadProgress`, `isDownloadingDefaultModel`,
+  `defaultModelError`) consumed by the pinned Settings card. Existing embedding-model CRUD stays
+  untouched: the user can rename, delete (which removes the GGUF), import other GGUFs, or add
+  remote models exactly as before.
+- EmbeddingGemma 2 needs model-specific task prefixes. The gemma formats are owned solely by
+  `EmbeddingModelConfig` (`promptFormat`, plus `documentEmbeddingInput`/`queryEmbeddingInput`), and
+  are applied only at the two embedding-input call sites: document text inside
+  `EmbeddingCacheWorker.embedCandidates` (`"title: none | text: …"`, since messages have no title)
+  and the search query inside `RagToolProvider.semanticSearch` (`"task: search result | query: …"`).
+  Models without a prompt format index raw text unchanged, so no existing behavior is affected.
+- The prefixes are applied at embedding-input time only. `semanticSourceFingerprint` and the ledger
+  keep hashing the raw message text, so enabling or changing the format never invalidates stored
+  embeddings and never forces a reindex.
+
 ## 2. Bounded data flow
 
 1. ChatDao reads a minimal projection containing only embedding row id, message id, embedding

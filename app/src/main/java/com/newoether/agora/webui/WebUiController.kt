@@ -237,6 +237,9 @@ internal class WebUiController(
         this.theme = theme
     }
 
+    // res/font ids resolve to file-based resources that openRawResource can read at runtime;
+    // the #ResourceType check is a static advisory, not a runtime constraint.
+    @android.annotation.SuppressLint("ResourceType")
     private fun readAppFont(): ByteArray? = runCatching {
         when (val font = theme?.font) {
             WebUiFont.AppDefault ->
