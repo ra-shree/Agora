@@ -1,0 +1,6 @@
+* EmbeddingGemma 2 as the default RAG embedding model: one-tap download, checksum-verified install, and activation from Settings → Search
+* Model-specific embedding prompt prefixes (documents and search queries) without reindexing or fingerprint changes
+* Downloads cancelable with live progress; failures leave no registered model
+* Existing remote presets, Ollama/custom, and local GGUF import flows unchanged
+* Pinned llama.cpp update enables the gemma-embedding2 architecture for EmbeddingGemma GGUF files
+* Released under GPL-3.0 (see README for the version-based license history)
