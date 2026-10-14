@@ -206,11 +206,16 @@ internal fun InteractiveAnswerSurface(
                                     val value = (data["value"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull.orEmpty()
                                     fun reply(ok: Boolean, cancelled: Boolean = false) {
                                         if (!alive.get() || id == null) return
+                                        // Reply strings live inside a non-recomposable WebView
+                                        // callback; the owner-approved fallback copy is stable
+                                        // across configuration changes for this surface.
+                                        @android.annotation.SuppressLint("LocalContextGetResourceValueCall")
+                                        val failureText = context.getString(R.string.interactive_answer_followup_failed)
                                         port.postMessage(WebMessage(buildJsonObject {
                                             put("id", id)
                                             put("ok", ok)
                                             put("cancelled", cancelled)
-                                            if (!ok) put("error", context.getString(R.string.interactive_answer_followup_failed))
+                                            if (!ok) put("error", failureText)
                                         }.toString()))
                                     }
                                     when (method) {

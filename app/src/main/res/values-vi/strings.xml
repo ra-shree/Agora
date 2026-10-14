@@ -207,7 +207,11 @@
     <string name="local_model_ready">Đã nhập mô hình.</string>
     <string name="import_model">Nhập mô hình (.gguf)</string>
     <string name="importing_model">Đang nhập...</string>
-    <string name="no_embedding_models">Chưa cấu hình mô hình nhúng nào</string>
+
+    <string name="embedding_gemma_name">EmbeddingGemma 2</string>
+    <string name="embedding_gemma_desc">Mô hình nhúng RAG mặc định · Trên thiết bị · 310 MB</string>
+    <string name="embedding_gemma_download">Tải xuống</string>
+    <string name="embedding_gemma_downloading">Đang tải xuống</string>
     <string name="embedding_type_remote">Từ xa</string>
     <string name="embedding_type_local">Cục bộ</string>
     <string name="cached">Đã lưu bộ đệm</string>

@@ -204,7 +204,11 @@
     <string name="local_model_ready">モデルをインポートしました。</string>
     <string name="import_model">モデルをインポート（.gguf）</string>
     <string name="importing_model">インポート中...</string>
-    <string name="no_embedding_models">埋め込みモデルが設定されていません</string>
+
+    <string name="embedding_gemma_name">EmbeddingGemma 2</string>
+    <string name="embedding_gemma_desc">デフォルトのRAG埋め込みモデル · オンデバイス · 310 MB</string>
+    <string name="embedding_gemma_download">ダウンロード</string>
+    <string name="embedding_gemma_downloading">ダウンロード中</string>
     <string name="embedding_type_remote">リモート</string>
     <string name="embedding_type_local">ローカル</string>
     <string name="cached">キャッシュ済み</string>

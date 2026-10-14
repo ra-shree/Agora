@@ -166,6 +166,18 @@ and WebUI share this contract.
 - Search Settings places `Show Uncached Notification` directly below Auto Cache only while Auto
   Cache is disabled. Its default-on stored value is retained while hidden; enabling Auto Cache hides
   the row rather than changing that value.
+- Search Settings embeds the pinned EmbeddingGemma 2 download card while no registered embedding
+  model carries the pinned default-model id. Placement rules: an empty model list shows the card
+  instead of the former `no_embedding_models` placeholder (the card's supporting text carries the
+  explanatory copy); a non-empty list without the pinned model shows the card as the first row above
+  the model rows; once installed, the card disappears and the ordinary model row represents the
+  model. The four-state Conversation Search row contract is untouched. The card is a plain
+  `SettingsItem` row (download icon, "EmbeddingGemma 2" headline, one supporting description line;
+  no chevron) whose whole row is inert — the trailing action slot is the only action. Failure copy
+  replaces the size line while set. The trailing slot is fixed at the same 76 dp × 48 dp minimum as
+  the cache action slots and crossfades over 250 ms between the Download button and the progress
+  indicator; progress states a percentage only when the downloaded length is known and otherwise
+  stays indeterminate without inventing a fraction.
 
 ## Diagnostic Capture
 

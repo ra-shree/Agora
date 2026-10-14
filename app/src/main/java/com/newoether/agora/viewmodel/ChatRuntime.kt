@@ -76,7 +76,8 @@ class ChatRuntime(
         settings = settings,
         appContext = appContext,
         scope = scope,
-    ) { _snackbarEvents.emit(it) }
+        emitSnackbar = { _snackbarEvents.emit(it) },
+    )
 
     internal val generationManager: GenerationManager by lazy {
         GenerationManager(

@@ -204,7 +204,11 @@
     <string name="local_model_ready">تم استيراد النموذج.</string>
     <string name="import_model">استيراد نموذج (.gguf)</string>
     <string name="importing_model">جارٍ الاستيراد...</string>
-    <string name="no_embedding_models">لا توجد نماذج تضمين مهيأة</string>
+
+    <string name="embedding_gemma_name">EmbeddingGemma 2</string>
+    <string name="embedding_gemma_desc">نموذج التضمين الافتراضي لـ RAG · على الجهاز · 310 ميجابايت</string>
+    <string name="embedding_gemma_download">تنزيل</string>
+    <string name="embedding_gemma_downloading">جارٍ التنزيل</string>
     <string name="embedding_type_remote">عن بُعد</string>
     <string name="embedding_type_local">محلي</string>
     <string name="cached">مخزّن مؤقتًا</string>

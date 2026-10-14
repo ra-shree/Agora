@@ -204,7 +204,11 @@
     <string name="local_model_ready">모델을 가져왔습니다.</string>
     <string name="import_model">모델 가져오기(.gguf)</string>
     <string name="importing_model">가져오는 중...</string>
-    <string name="no_embedding_models">구성된 임베딩 모델이 없습니다</string>
+
+    <string name="embedding_gemma_name">EmbeddingGemma 2</string>
+    <string name="embedding_gemma_desc">기본 RAG 임베딩 모델 · 온디바이스 · 310 MB</string>
+    <string name="embedding_gemma_download">다운로드</string>
+    <string name="embedding_gemma_downloading">다운로드 중</string>
     <string name="embedding_type_remote">원격</string>
     <string name="embedding_type_local">로컬</string>
     <string name="cached">캐시됨</string>

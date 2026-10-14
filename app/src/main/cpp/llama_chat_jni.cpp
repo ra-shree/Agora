@@ -466,12 +466,17 @@ Java_com_newoether_agora_api_LlamaChatEngine_nativeChatGenerateWithImages(
     jint n_images = env->GetArrayLength(image_paths);
     std::vector<mtmd_bitmap *> bitmaps(n_images, nullptr);
     std::vector<std::string> image_path_storage(n_images);
+    // Video streaming contexts emitted alongside lazy video bitmaps. The app feeds
+    // single bitmaps (like the old init_from_file API), so unused contexts are freed
+    // with the images, mirroring how upstream's mtmd-cli cleans up after a run.
+    std::vector<mtmd_helper::video_ptr> video_contexts;
 
     for (jint i = 0; i < n_images; i++) {
         jstring jpath = (jstring)env->GetObjectArrayElement(image_paths, i);
         if (!jpath) {
             if (env->ExceptionCheck()) env->ExceptionClear();
             for (auto & b : bitmaps) if (b) mtmd_bitmap_free(b);
+            video_contexts.clear();
             return report_error(
                 env, callback, callbacks, "Unable to read image path.", 0, 0
             );
@@ -480,20 +485,28 @@ Java_com_newoether_agora_api_LlamaChatEngine_nativeChatGenerateWithImages(
             env->DeleteLocalRef(jpath);
             if (env->ExceptionCheck()) env->ExceptionClear();
             for (auto & b : bitmaps) if (b) mtmd_bitmap_free(b);
+            video_contexts.clear();
             return report_error(
                 env, callback, callbacks, "Unable to read image path.", 0, 0
             );
         }
         env->DeleteLocalRef(jpath);
 
-        bitmaps[i] = mtmd_helper_bitmap_init_from_file(handle->mtmd_ctx,
-                                                       image_path_storage[i].c_str());
+        const auto bitmap_result = mtmd_helper_bitmap_init_from_file(handle->mtmd_ctx,
+                                                                     image_path_storage[i].c_str(),
+                                                                     false,
+                                                                     mtmd_helper_init_opt_default());
+        bitmaps[i] = bitmap_result.bitmap;
+        if (bitmap_result.video_ctx) {
+            video_contexts.emplace_back(bitmap_result.video_ctx);
+        }
         if (!bitmaps[i]) {
             LOGE("Failed to load image at index %d of %d", i, n_images);
             // Clean up already-loaded bitmaps
             for (jint j = 0; j < i; j++) {
                 if (bitmaps[j]) mtmd_bitmap_free(bitmaps[j]);
             }
+            video_contexts.clear();
             return report_error(
                 env, callback, callbacks, "Failed to load image for multimodal input.", 0, 0
             );
@@ -512,6 +525,7 @@ Java_com_newoether_agora_api_LlamaChatEngine_nativeChatGenerateWithImages(
     mtmd_input_chunks * chunks = mtmd_input_chunks_init();
     if (!chunks) {
         for (auto & b : bitmaps) if (b) mtmd_bitmap_free(b);
+        video_contexts.clear();
         return report_error(
             env, callback, callbacks, "Unable to allocate multimodal prompt chunks.", 0, 0
         );
@@ -521,6 +535,7 @@ Java_com_newoether_agora_api_LlamaChatEngine_nativeChatGenerateWithImages(
     if (tok_ret != 0) {
         LOGE("mtmd_tokenize failed with code %d (images=%d)", tok_ret, n_images);
         for (auto & b : bitmaps) if (b) mtmd_bitmap_free(b);
+        video_contexts.clear();
         mtmd_input_chunks_free(chunks);
         return report_error(
             env, callback, callbacks, "Failed to tokenize multimodal prompt.", 0, 0
@@ -531,6 +546,7 @@ Java_com_newoether_agora_api_LlamaChatEngine_nativeChatGenerateWithImages(
     int32_t n_ctx = llama_n_ctx(handle->ctx);
     if (handle->cancelled.load(std::memory_order_relaxed)) {
         for (auto & b : bitmaps) if (b) mtmd_bitmap_free(b);
+        video_contexts.clear();
         mtmd_input_chunks_free(chunks);
         return report_done(env, callback, callbacks, "cancelled", 0, 0);
     }
@@ -543,6 +559,7 @@ Java_com_newoether_agora_api_LlamaChatEngine_nativeChatGenerateWithImages(
                                                 true, &n_past);
     // Free bitmaps and chunks after evaluation
     for (auto & b : bitmaps) if (b) mtmd_bitmap_free(b);
+    video_contexts.clear();
     mtmd_input_chunks_free(chunks);
 
     if (eval_ret != 0) {

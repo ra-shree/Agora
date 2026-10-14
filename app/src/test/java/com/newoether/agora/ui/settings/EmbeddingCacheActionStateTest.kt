@@ -124,7 +124,9 @@ class EmbeddingCacheActionStateTest {
 
         assertTrue(source.contains("cacheRow?.cachingCached?.let { shown ->"))
         assertTrue(source.contains("\"\$shown/\$total (\$percent%)\""))
-        assertTrue(source.contains("val fraction =\n                                                                    cacheRow?.cachingFraction"))
+        // Whitespace-insensitive: the invariant is the data source, not line indentation.
+        val normalized = source.replace(Regex("\\s+"), " ")
+        assertTrue(normalized.contains("val fraction = cacheRow?.cachingFraction"))
         assertFalse(source.contains("progress = { progress.fraction }"))
     }
 

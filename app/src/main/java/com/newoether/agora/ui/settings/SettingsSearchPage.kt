@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.DpSize
 import com.newoether.agora.R
 import com.newoether.agora.api.ProviderDefaults
+import com.newoether.agora.data.EmbeddingGemmaDefaults
 import com.newoether.agora.viewmodel.EmbeddingCacheRowPhase
 import com.newoether.agora.viewmodel.rowPhase
 import com.newoether.agora.ui.common.PersistedSliderFeedbackGate
@@ -311,176 +312,171 @@ fun SettingsSearchPage(viewModel: ChatViewModel, onBack: () -> Unit) {
             SettingsGroup(
                 title = stringResource(R.string.embedding_title),
                 items = buildList {
-                    if (embeddingModels.isEmpty()) {
+                    // Pinned EmbeddingGemma 2 entry: shown instead of the empty placeholder, or
+                    // above the model rows, until the model is downloaded and registered.
+                    if (embeddingModels.none { it.id == EmbeddingGemmaDefaults.MODEL_ID }) {
+                        add { EmbeddingGemmaDownloadCard(viewModel.ragManager) }
+                    }
+                    embeddingModels.forEach { model ->
                         add {
+                            val isActive = model.id == activeEmbeddingModelId
+                            val cacheRow = cacheRows[model.id]
+                            val visualPhase = cacheRow.rowPhase()
                             SettingsItem(
-                                headlineContent = { Text(stringResource(R.string.no_embedding_models), color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                leadingContent = { Icon(Icons.Default.Chat, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)) },
-                                modifier = Modifier.heightIn(min = 64.dp)
-                            )
-                        }
-                    } else {
-                        embeddingModels.forEach { model ->
-                            add {
-                                val isActive = model.id == activeEmbeddingModelId
-                                val cacheRow = cacheRows[model.id]
-                                val visualPhase = cacheRow.rowPhase()
-                                SettingsItem(
-                                    headlineContent = { Text(model.name) },
-                                    supportingContent = {
-                                        val typeLabel = if (model.type == com.newoether.agora.data.EmbeddingModelType.REMOTE)
-                                            stringResource(R.string.embedding_type_remote)
-                                        else stringResource(R.string.embedding_type_local)
-                                        val countLabel = cacheRow?.cached?.let { cached ->
-                                            "$cached/${cacheRow.indexableTotal}"
-                                        }
-                                        val cacheLabel = when (visualPhase) {
-                                            EmbeddingCacheRowPhase.LOADING ->
-                                                stringResource(R.string.loading_label)
-                                            // Caching states its own progress as a percentage of
-                                            // the same pair the indicator draws.
-                                            EmbeddingCacheRowPhase.CACHING ->
-                                                cacheRow?.cachingCached?.let { shown ->
-                                                    val total =
-                                                        requireNotNull(cacheRow.indexableTotal)
-                                                    val percent = ((cacheRow.cachingFraction ?: 0f) *
-                                                        100).toInt()
-                                                    "$shown/$total ($percent%)"
-                                                }
-                                                    // A run that started before its counts arrived
-                                                    // has no progress to state yet. It still has to
-                                                    // say it is working, or the row would show only
-                                                    // the model type next to a spinning indicator.
-                                                    ?: stringResource(R.string.loading_label)
-                                            EmbeddingCacheRowPhase.CACHE -> {
-                                                val cached = requireNotNull(cacheRow?.cached)
-                                                val total = requireNotNull(cacheRow.indexableTotal)
-                                                "${total - cached} " +
-                                                    "${stringResource(R.string.not_cached)} " +
-                                                    "($cached/$total)"
+                                headlineContent = { Text(model.name) },
+                                supportingContent = {
+                                    val typeLabel = if (model.type == com.newoether.agora.data.EmbeddingModelType.REMOTE)
+                                        stringResource(R.string.embedding_type_remote)
+                                    else stringResource(R.string.embedding_type_local)
+                                    val countLabel = cacheRow?.cached?.let { cached ->
+                                        "$cached/${cacheRow.indexableTotal}"
+                                    }
+                                    val cacheLabel = when (visualPhase) {
+                                        EmbeddingCacheRowPhase.LOADING ->
+                                            stringResource(R.string.loading_label)
+                                        // Caching states its own progress as a percentage of
+                                        // the same pair the indicator draws.
+                                        EmbeddingCacheRowPhase.CACHING ->
+                                            cacheRow?.cachingCached?.let { shown ->
+                                                val total =
+                                                    requireNotNull(cacheRow.indexableTotal)
+                                                val percent = ((cacheRow.cachingFraction ?: 0f) *
+                                                    100).toInt()
+                                                "$shown/$total ($percent%)"
                                             }
-                                            EmbeddingCacheRowPhase.RECACHE ->
-                                                "${stringResource(R.string.cached)} ($countLabel)"
-                                            null -> null
+                                                // A run that started before its counts arrived
+                                                // has no progress to state yet. It still has to
+                                                // say it is working, or the row would show only
+                                                // the model type next to a spinning indicator.
+                                                ?: stringResource(R.string.loading_label)
+                                        EmbeddingCacheRowPhase.CACHE -> {
+                                            val cached = requireNotNull(cacheRow?.cached)
+                                            val total = requireNotNull(cacheRow.indexableTotal)
+                                            "${total - cached} " +
+                                                "${stringResource(R.string.not_cached)} " +
+                                                "($cached/$total)"
                                         }
-                                        Crossfade(
-                                            targetState = listOfNotNull(typeLabel, cacheLabel).joinToString(" · "),
-                                            animationSpec = tween(250),
-                                            label = "embeddingCacheStatus-${model.id}",
-                                        ) { status ->
-                                            Text(status)
-                                        }
-                                    },
-                                    leadingContent = {
-                                        RadioButton(
-                                            selected = isActive,
-                                            onClick = { viewModel.ragManager.setActiveEmbeddingModel(model.id) }
-                                        )
-                                    },
-                                    trailingContent = {
-                                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                            Box(
-                                                modifier = Modifier.size(cacheActionSize),
-                                                contentAlignment = androidx.compose.ui.Alignment.Center,
-                                            ) {
-                                                Crossfade(
-                                                    targetState = visualPhase,
+                                        EmbeddingCacheRowPhase.RECACHE ->
+                                            "${stringResource(R.string.cached)} ($countLabel)"
+                                        null -> null
+                                    }
+                                    Crossfade(
+                                        targetState = listOfNotNull(typeLabel, cacheLabel).joinToString(" · "),
+                                        animationSpec = tween(250),
+                                        label = "embeddingCacheStatus-${model.id}",
+                                    ) { status ->
+                                        Text(status)
+                                    }
+                                },
+                                leadingContent = {
+                                    RadioButton(
+                                        selected = isActive,
+                                        onClick = { viewModel.ragManager.setActiveEmbeddingModel(model.id) }
+                                    )
+                                },
+                                trailingContent = {
+                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier.size(cacheActionSize),
+                                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                                        ) {
+                                            Crossfade(
+                                                targetState = visualPhase,
+                                                modifier = Modifier.fillMaxSize(),
+                                                animationSpec = tween(250),
+                                                label = "embeddingCacheAction-${model.id}",
+                                            ) { phase ->
+                                                Box(
                                                     modifier = Modifier.fillMaxSize(),
-                                                    animationSpec = tween(250),
-                                                    label = "embeddingCacheAction-${model.id}",
-                                                ) { phase ->
-                                                    Box(
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentAlignment = androidx.compose.ui.Alignment.Center,
-                                                    ) {
-                                                        when (phase) {
-                                                            EmbeddingCacheRowPhase.CACHING -> {
-                                                                // Determinate only when the row has
-                                                                // real counts to divide; otherwise
-                                                                // the fraction would be invented.
-                                                                val fraction =
-                                                                    cacheRow?.cachingFraction
-                                                                if (fraction == null) {
-                                                                    CircularProgressIndicator(
-                                                                        modifier = Modifier.size(24.dp),
-                                                                        strokeWidth = 3.dp,
-                                                                    )
-                                                                } else {
-                                                                    CircularProgressIndicator(
-                                                                        progress = { fraction },
-                                                                        modifier = Modifier.size(24.dp),
-                                                                        strokeWidth = 3.dp,
-                                                                    )
-                                                                }
-                                                            }
-                                                            EmbeddingCacheRowPhase.LOADING ->
+                                                    contentAlignment = androidx.compose.ui.Alignment.Center,
+                                                ) {
+                                                    when (phase) {
+                                                        EmbeddingCacheRowPhase.CACHING -> {
+                                                            // Determinate only when the row has
+                                                            // real counts to divide; otherwise
+                                                            // the fraction would be invented.
+                                                            val fraction =
+                                                                cacheRow?.cachingFraction
+                                                            if (fraction == null) {
                                                                 CircularProgressIndicator(
                                                                     modifier = Modifier.size(24.dp),
                                                                     strokeWidth = 3.dp,
                                                                 )
-                                                            null -> Unit
-                                                            EmbeddingCacheRowPhase.RECACHE -> TextButton(
-                                                                enabled = visualPhase == phase,
-                                                                onClick = { showRecacheConfirm = model.id },
-                                                            ) {
-                                                                Text(
-                                                                    stringResource(R.string.recache_action),
-                                                                    maxLines = 1,
-                                                                    softWrap = false,
+                                                            } else {
+                                                                CircularProgressIndicator(
+                                                                    progress = { fraction },
+                                                                    modifier = Modifier.size(24.dp),
+                                                                    strokeWidth = 3.dp,
                                                                 )
                                                             }
-                                                            EmbeddingCacheRowPhase.CACHE -> TextButton(
-                                                                enabled = visualPhase == phase,
-                                                                onClick = {
-                                                                    viewModel.ragManager.cacheMessagesForModel(
-                                                                        model.id,
-                                                                    )
-                                                                },
-                                                            ) {
-                                                                Text(
-                                                                    stringResource(R.string.cache_action),
-                                                                    maxLines = 1,
-                                                                    softWrap = false,
+                                                        }
+                                                        EmbeddingCacheRowPhase.LOADING ->
+                                                            CircularProgressIndicator(
+                                                                modifier = Modifier.size(24.dp),
+                                                                strokeWidth = 3.dp,
+                                                            )
+                                                        null -> Unit
+                                                        EmbeddingCacheRowPhase.RECACHE -> TextButton(
+                                                            enabled = visualPhase == phase,
+                                                            onClick = { showRecacheConfirm = model.id },
+                                                        ) {
+                                                            Text(
+                                                                stringResource(R.string.recache_action),
+                                                                maxLines = 1,
+                                                                softWrap = false,
+                                                            )
+                                                        }
+                                                        EmbeddingCacheRowPhase.CACHE -> TextButton(
+                                                            enabled = visualPhase == phase,
+                                                            onClick = {
+                                                                viewModel.ragManager.cacheMessagesForModel(
+                                                                    model.id,
                                                                 )
-                                                            }
+                                                            },
+                                                        ) {
+                                                            Text(
+                                                                stringResource(R.string.cache_action),
+                                                                maxLines = 1,
+                                                                softWrap = false,
+                                                            )
                                                         }
                                                     }
                                                 }
                                             }
-                                            Box {
-                                                IconButton(onClick = { showMenuForModel = model.id }) {
-                                                    Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.options))
-                                                }
-                                                AgoraDropdownMenu(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                                    tonalElevation = 16.dp,
-                                                    expanded = showMenuForModel == model.id,
-                                                    onDismissRequest = { showMenuForModel = null }
-                                                ) {
-                                                    AgoraDropdownMenuItem(
-                                                        text = { Text(stringResource(R.string.edit)) },
-                                                        leadingIcon = { Icon(Icons.Default.Edit, null) },
-                                                        onClick = {
-                                                            showMenuForModel = null
-                                                            renameText = model.name
-                                                            showRenameDialog = model.id
-                                                        }
-                                                    )
-                                                    AgoraDropdownMenuItem(
-                                                        text = { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) },
-                                                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                                                        onClick = {
-                                                            showMenuForModel = null
-                                                            showDeleteDialog = model.id
-                                                        }
-                                                    )
-                                                }
+                                        }
+                                        Box {
+                                            IconButton(onClick = { showMenuForModel = model.id }) {
+                                                Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.options))
+                                            }
+                                            AgoraDropdownMenu(
+                                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                                tonalElevation = 16.dp,
+                                                expanded = showMenuForModel == model.id,
+                                                onDismissRequest = { showMenuForModel = null }
+                                            ) {
+                                                AgoraDropdownMenuItem(
+                                                    text = { Text(stringResource(R.string.edit)) },
+                                                    leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                                    onClick = {
+                                                        showMenuForModel = null
+                                                        renameText = model.name
+                                                        showRenameDialog = model.id
+                                                    }
+                                                )
+                                                AgoraDropdownMenuItem(
+                                                    text = { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) },
+                                                    leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                                    onClick = {
+                                                        showMenuForModel = null
+                                                        showDeleteDialog = model.id
+                                                    }
+                                                )
                                             }
                                         }
-                                    },
-                                    modifier = Modifier.clickable { viewModel.ragManager.setActiveEmbeddingModel(model.id) }
-                                )
-                            }
+                                    }
+                                },
+                                modifier = Modifier.clickable { viewModel.ragManager.setActiveEmbeddingModel(model.id) }
+                            )
                         }
                     }
                     add {
