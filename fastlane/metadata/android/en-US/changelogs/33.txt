@@ -1,0 +1,2 @@
+* Sandbox storage meter now reflects the device's real available space instead of a fixed 2 GB ceiling
+* Rootfs and /home usage are both counted toward the reported sandbox usage

@@ -154,12 +154,14 @@ fun SettingsSandboxPage(
 
     val quickPkgs = listOf("python3", "git", "curl", "wget", "openssh", "nodejs", "build-base", "htop")
     val pkgCount = backendPackages.size
-    var diskUsageMB by remember { mutableLongStateOf(0L) }
+    var storage by remember { mutableStateOf(SandboxManager.SandboxStorage(usedMB = 0L, capacityMB = 0L)) }
     LaunchedEffect(backendPackages.size) {
-        try { diskUsageMB = sandboxManager.getDiskUsageMB() } catch (_: Exception) {}
+        try { storage = sandboxManager.getStorageStats() } catch (_: Exception) {}
     }
+    val storageCapacityMB = storage.capacityMB.coerceAtLeast(1L)
+    val storageCapacityGB = ((storageCapacityMB + 512L) / 1024L).coerceAtLeast(1L)
     val diskUsageProgress by animateFloatAsState(
-        targetValue = (diskUsageMB.toFloat() / 2048f).coerceIn(0f, 1f),
+        targetValue = (storage.usedMB.toFloat() / storageCapacityMB).coerceIn(0f, 1f),
         animationSpec = if (motionPolicy.allowSpatialTransitions) {
             tween(durationMillis = 500, easing = FastOutSlowInEasing)
         } else {
@@ -259,8 +261,16 @@ fun SettingsSandboxPage(
                                             )
                                             Spacer(Modifier.width(10.dp))
                                             Text(
-                                                if (diskUsageMB < 1000) stringResource(R.string.sandbox_disk_usage_mb, diskUsageMB.coerceAtLeast(1))
-                                                else stringResource(R.string.sandbox_disk_usage_gb, diskUsageMB / 1024f),
+                                                if (storage.usedMB < 1000) stringResource(
+                                                    R.string.sandbox_disk_usage_mb,
+                                                    storage.usedMB.coerceAtLeast(1),
+                                                    storageCapacityGB,
+                                                )
+                                                else stringResource(
+                                                    R.string.sandbox_disk_usage_gb,
+                                                    storage.usedMB / 1024f,
+                                                    storageCapacityGB,
+                                                ),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )

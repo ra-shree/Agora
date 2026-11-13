@@ -88,7 +88,8 @@ class PlaySandboxManager : SandboxManager {
 
     override suspend fun apkUpgrade(onProgress: (String) -> Unit): Int = 0
 
-    override suspend fun getDiskUsageMB(): Long = 0L
+    override suspend fun getStorageStats(): SandboxManager.SandboxStorage =
+        SandboxManager.SandboxStorage(usedMB = 0L, capacityMB = 0L)
 
     override fun getSandboxHomeDir(): File? = null
     override suspend fun reset(): Boolean = false

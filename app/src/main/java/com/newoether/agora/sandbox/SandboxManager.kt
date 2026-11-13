@@ -117,8 +117,14 @@ interface SandboxManager {
     /** Remove a package from the sandbox. */
     suspend fun apkDelete(packageName: String): Boolean
 
-    /** Get rootfs disk usage in MB. */
-    suspend fun getDiskUsageMB(): Long
+    /**
+     * Rootfs usage and the total capacity available to the sandbox, in MB.
+     *
+     * The sandbox is an ordinary directory in app-private storage, so it has no fixed quota:
+     * capacity is the current rootfs usage plus the free space on the app's data volume. Showing
+     * that pairing keeps the Settings meter honest instead of pinning it to an arbitrary ceiling.
+     */
+    suspend fun getStorageStats(): SandboxStorage
 
     /** Delete rootfs and proot binary, returning to uninstalled state. */
     suspend fun reset(): Boolean
@@ -146,5 +152,11 @@ interface SandboxManager {
         val version: String = "",
         val sizeBytes: Long = 0,
         val description: String = ""
+    )
+
+    /** Sandbox storage in MB: [usedMB] for the rootfs, [capacityMB] for usage plus free space. */
+    data class SandboxStorage(
+        val usedMB: Long,
+        val capacityMB: Long,
     )
 }
