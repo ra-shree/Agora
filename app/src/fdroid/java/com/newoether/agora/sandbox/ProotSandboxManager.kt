@@ -747,8 +747,14 @@ class ProotSandboxManager(
         }
     }
 
-    override suspend fun getDiskUsageMB(): Long = withContext(Dispatchers.IO) {
-        try { rootfsDir.walkTopDown().sumOf { it.length() } / (1024 * 1024) } catch (_: Throwable) { 0L }
+    override suspend fun getStorageStats(): SandboxManager.SandboxStorage = withContext(Dispatchers.IO) {
+        try {
+            val used = listOf(rootfsDir, homeMountDir).sumOf { d -> if (d.isDirectory) d.walkTopDown().sumOf { it.length() } else 0L }
+            SandboxManager.SandboxStorage(
+                usedMB = used / BYTES_PER_MB,
+                capacityMB = ((used + rootfsDir.usableSpace.coerceAtLeast(0L)) / BYTES_PER_MB).coerceAtLeast(1L),
+            )
+        } catch (_: Throwable) { SandboxManager.SandboxStorage(usedMB = 0L, capacityMB = 0L) }
     }
 
     // ── Helpers ────────────────────────────────────────
@@ -787,6 +793,7 @@ class ProotSandboxManager(
     }
 
     private companion object {
+        const val BYTES_PER_MB = 1024L * 1024L
         const val PROCESS_POLL_INTERVAL_MS = 25L
         const val PROCESS_OUTPUT_CLOSE_GRACE_MS = 250L
     }
